@@ -1,0 +1,101 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@1472.ve4d5eca_143c4">
+  <actions>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobAction plugin="pipeline-model-definition@2.2218.v56d0cda_37c72"/>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction plugin="pipeline-model-definition@2.2218.v56d0cda_37c72">
+      <jobProperties/>
+      <triggers/>
+      <parameters/>
+      <options/>
+    </org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction>
+  </actions>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties/>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@4000.v5198556e9cea_">
+    <script>pipeline {
+    agent any
+
+    environment {
+        PYTHONPATH = &quot;${WORKSPACE}&quot;
+        FLASK_APP = &quot;${WORKSPACE}/app/api.py&quot;
+    }
+
+    stages {
+        stage(&apos;Get Code&apos;) {
+            steps {
+                // Clonar el repositorio
+                git &apos;https://github.com/egamezg/helloworld-unir&apos;
+            }
+        }
+        stage(&apos;Start Flask&apos;) {
+            steps {
+                sh &apos;nohup flask run &gt; flask.log 2&gt;&amp;1 &amp;&apos;
+                // Verifica que el servidor está en funcionamiento
+                script {
+                    waitUntil {
+                        echo &apos;Checking if Flask server is running...&apos;
+                        return sh(script: &quot;curl -s http://127.0.0.1:5000 &gt; /dev/null&quot;, returnStatus: true) == 0
+                    }
+                    echo &apos;Flask server is up and running!&apos;
+                }
+            }
+        }
+        stage(&apos;Run Unit Tests&apos;) {
+            steps {
+                catchError(buildResult: &apos;UNSTABLE&apos;, stageResult: &apos;FAILURE&apos;) {
+                // Ejecutar los tests con pytest
+                sh &apos;pytest --junitxml=result-unit.xml test/unit&apos;
+                }
+            }
+        }
+        stage(&apos;Start WireMock&apos;) {
+            steps {
+                // Iniciar WireMock como un proceso en segundo plano
+                sh &apos;setsid java -jar /opt/wiremock/wiremock.jar --root-dir ${WORKSPACE}/test/wiremock/ --port 9090 &gt; wiremock.log 2&gt;&amp;1 &amp;&apos;
+                script {
+                    waitUntil {
+                        echo &apos;Checking if WireMock server is running...&apos;
+                        return sh(script: &quot;curl -s http://127.0.0.1:9090/calc/sqrt/64 &gt; /dev/null&quot;, returnStatus: true) == 0
+                    }
+                    echo &apos;WireMock server is up and running!&apos;
+                }
+            }
+        }
+        stage(&apos;Run Tests Rest&apos;) {
+            steps {
+                catchError(buildResult: &apos;UNSTABLE&apos;, stageResult: &apos;FAILURE&apos;) {
+                // Ejecutar pruebas con pytest
+                sh &apos;pytest --junitxml=result-rest.xml test/rest&apos;
+                }
+            }
+        }
+        stage(&apos;Stop WireMock&apos;) {
+            steps {
+                // Parar WireMock (opcional: buscar el PID y matarlo)
+                sh &quot;pkill -f &apos;wiremock.jar&apos;&quot;
+            }
+        }
+        stage(&apos;Results&apos;){
+            steps {
+                junit &apos;result*.xml&apos;
+            }
+        }
+    }
+
+    post {
+        always {
+            echo &apos;Stopping Flask server...&apos;
+            // Detiene el servidor Flask al final
+            sh &apos;&apos;&apos;
+            pkill -f &quot;flask run&quot;
+            &apos;&apos;&apos;
+        }
+    }
+}
+</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>
